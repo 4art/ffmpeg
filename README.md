@@ -7,6 +7,7 @@ The design for the workflow is taken from this great article on serverless.com b
 There are some modifications to the setup which include:
 * The input bucket is not public - an IAM role is created and assigned to the ECS task to pull from this bucket
 * The Lambda code has been ported to python3.6
+* No ECS service is created - this is not required for the workflow to run
 * There is a slight change to the way the S3 input video file is passed to the task. The Lambda function passes the bucket and key details as separate parameters in the container overrides.
 * The docker container has been rebuilt with very minor changes to enable the pull of the input video file from a non-public bucket. I have put this up on public dockerhub (see the 'containerid' parameter in the CF template)
 

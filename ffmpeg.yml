@@ -87,16 +87,6 @@ Resources:
     Type: "AWS::S3::Bucket"
   bucketin:
     Type: "AWS::S3::Bucket"
-    Properties:
-      NotificationConfiguration:
-        LambdaConfigurations:
-        - Event: s3:ObjectCreated:*
-          Function: !GetAtt lambda.Arn
-          Filter:
-            S3Key:
-              Rules:
-              - Name: suffix
-                Value: mp4
   LambdaInvokePermission:
     Type: 'AWS::Lambda::Permission'
     Properties:

@@ -1,6 +1,6 @@
 # ffmpeg
 
-This repository contains a Cloudformation yaml script for creating a Lambda function to trigger a Fargate task. The task will pull an mp4 video file and create a thumbnail from the video in an output bucket.
+This repository contains a Cloudformation yaml script for creating a Lambda function to trigger a Fargate task. The task will pull an mp4 video file and create a thumbnail from the video in an output bucket but the template could be used as a skeleton for other uses of this architecture.
 
 The design for the workflow is taken from this great article on serverless.com by Rupak Ganguly: https://serverless.com/blog/serverless-application-for-long-running-process-fargate-lambda/ (also for more details on the underlying ffmpeg utility see https://www.ffmpeg.org/documentation.html)
 

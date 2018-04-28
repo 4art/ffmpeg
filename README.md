@@ -12,6 +12,7 @@ There are some modifications to the setup which include:
 
 ## Install
 
+1. Clone this repo
 1. Create a Cloudformation stack in the us-east-1 region (probably best to stick to this region until Fargate becomes more widely available) from ffmpeg.yml template
 1. Update the Cloudformation stack created using template ffmpeg-update.yml. This is a workaround that adds a NotificationConfiguration for the S3 input bucket - issues with circular references mean it has to be done this way.
 1. The Cloudformation outputs tab for the stack will show refs for bucketin and bucketout. Upload a video file to the bucketin location, the filename format must be [name]_[position nn-nn].mp4 (e.g. test_00-03.mp4). I have included a test mp4 file test_00-03.mp4 in this repository to demonstrate (dont ask what its about - it was just handy in my Docs folder! :0)

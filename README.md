@@ -17,6 +17,7 @@ There are some modifications to the setup which include:
 1. Create a Cloudformation stack in the us-east-1 region (probably best to stick to this region until Fargate becomes more widely available) from ffmpeg.yml template
 1. Update the Cloudformation stack created using template ffmpeg-update.yml. This is a workaround that adds a NotificationConfiguration for the S3 input bucket - issues with circular references mean it has to be done this way.
 1. The Cloudformation outputs tab for the stack will show refs for bucketin and bucketout. Upload a video file to the bucketin location, the filename format must be [name]_[position nn-nn].mp4 (e.g. test_00-03.mp4). I have included a test mp4 file test_00-03.mp4 in this repository to demonstrate (dont ask what its about - it was just handy in my Docs folder! :0)
+1. For some reason (possibly a bug) the Cloudwatch log group for the task must be created despite the task role having 'logs:CreateLogGroup' permissions. The Log Group that needs to be created can be found in the console in the ECS task definition "Log Configuration"
 1. Once the ECS task has completed the thumbnail will be available in bucketout
 1. Logs for both the ECS task and the Lambda function can be viewed in Cloudwatch Logs
 

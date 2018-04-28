@@ -1,0 +1,273 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: | 
+  This is a template to create a Fargate task triggered by an S3 bucket having a video file uploaded
+  based on article https://serverless.com/blog/serverless-application-for-long-running-process-fargate-lambda/ by Rupak Ganguly
+Parameters:
+  containerid:
+    Description: The container that the task will be created from
+    Type: String
+    Default: akumadare/docker-ffmpeg-thumb:v3
+  VpcCidrBlock:
+    Type: String
+    Description: CIDR/IP range for the VPC
+    Default: 10.0.0.0/16
+  SubnetCidrBlock1:
+    Type: String
+    Description: CIDR/IP range for the VPC
+    Default: 10.0.0.0/24
+Resources:
+  task:
+    Type: "AWS::ECS::TaskDefinition"
+    Properties: 
+      Cpu: '256'
+      ExecutionRoleArn: !GetAtt role.Arn
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn: !GetAtt role.Arn
+      ContainerDefinitions:
+      - Environment:
+          - Name: INPUT_VIDEO_FILE_BUCKET
+            Value: ''
+          - Name: INPUT_VIDEO_FILE_KEY
+            Value: ''
+          - Name: POSITION_TIME_DURATION
+            Value: ''
+          - Name: OUTPUT_THUMBS_FILE_NAME
+            Value: ''
+          - Name: OUTPUT_S3_PATH
+            Value: !Ref bucketout
+          - Name: AWS_REGION
+            Value: us-east-1
+        Image: !Ref containerid
+        Privileged: false
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Sub /ecs/${AWS::StackName}-container
+            awslogs-region: us-east-1
+            awslogs-stream-prefix: ecs
+        Name: !Sub ${AWS::StackName}-container
+  role:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ecs-tasks.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies: 
+        - PolicyName: fargatetask
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action: "s3:*"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                - ecr:GetAuthorizationToken
+                - ecr:BatchCheckLayerAvailability
+                - ecr:GetDownloadUrlForLayer
+                - ecr:BatchGetImage
+                - logs:CreateLogStream
+                - logs:CreateLogGroup
+                - logs:PutLogEvents
+                Resource: "*"
+  cluster:
+    Type: "AWS::ECS::Cluster"
+  bucketout:
+    Type: "AWS::S3::Bucket"
+  bucketin:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      NotificationConfiguration:
+        LambdaConfigurations:
+        - Event: s3:ObjectCreated:*
+          Function: !GetAtt lambda.Arn
+          Filter:
+            S3Key:
+              Rules:
+              - Name: suffix
+                Value: mp4
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt lambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt bucketin.Arn
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref 'VpcCidrBlock'
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub VPC-${AWS::StackName}
+        - Key: 'Description'
+          Value: VPC for Fargate containers
+  PublicSubnetAz1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'Vpc'
+      CidrBlock: !Ref 'SubnetCidrBlock1'
+      AvailabilityZone:
+        !Select
+        - '0'
+        - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub Subnet-${AWS::StackName}
+        - Key: 'Description'
+          Value: Subnet for Fargate containers
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub IGW-${AWS::StackName}
+        - Key: 'Description'
+          Value: IGW for Fargate containers
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref 'Vpc'
+      InternetGatewayId: !Ref 'InternetGateway'
+  RouteViaIgw:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'Vpc'
+      Tags:
+        - Key: Name
+          Value: !Sub RouteTable-${AWS::StackName}
+        - Key: 'Description'
+          Value: Route table for Fargate containers
+  PublicRouteViaIgw:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref 'RouteViaIgw'
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref 'InternetGateway'
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'PublicSubnetAz1'
+      RouteTableId: !Ref 'RouteViaIgw'
+  lambda:
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      Code:
+        ZipFile:  
+          !Sub |
+            import boto3
+            import os
+                
+            def runThumbnailGenerateTask(s3_video_bucket, s3_video_key, thumbnail_file, frame_pos):
+                client = boto3.client('ecs')
+                response = client.run_task(
+                cluster='${cluster}', 
+                launchType = 'FARGATE',
+                taskDefinition='${task}',
+                count = 1,
+                overrides={
+                    'containerOverrides': [
+                        {
+                            'name' : '${AWS::StackName}-container',
+                            'environment': [
+                                {
+                                    'name': 'INPUT_VIDEO_FILE_BUCKET',
+                                    'value': s3_video_bucket
+                                },
+                                {
+                                    'name': 'INPUT_VIDEO_FILE_KEY',
+                                    'value': s3_video_key
+                                },
+                                {
+                                    'name': 'OUTPUT_THUMBS_FILE_NAME',
+                                    'value': thumbnail_file
+                                },
+                                {
+                                    'name': 'POSITION_TIME_DURATION',
+                                    'value': frame_pos
+                                },
+                                {
+                                    'name': 'OUTPUT_S3_PATH',
+                                    'value': '${bucketout}'
+                                },
+                                {
+                                    'name': 'AWS_REGION',
+                                    'value': '${AWS::Region}'
+                                }
+                            ]
+                        }
+                    ]
+                },
+                platformVersion='LATEST',
+                networkConfiguration={
+                    'awsvpcConfiguration': {
+                    'subnets': [
+                        '${PublicSubnetAz1}'
+                    ],
+                    'assignPublicIp': 'ENABLED'
+                    }
+                })
+                return str(response)
+                    
+            def handler(event,context):
+                bucket = event['Records'][0]['s3']['bucket']['name']
+                key = event['Records'][0]['s3']['object']['key']
+                
+                s3_video_bucket = bucket
+                s3_video_key = key
+                
+                thumbnail_file = '{}.png'.format(key.split('_')[0])
+                frame_pos = key[key.index('_')+1:key.rindex('.')].replace('-',':')
+
+                runThumbnailGenerateTask(s3_video_bucket, s3_video_key, thumbnail_file, frame_pos)
+          
+      Description: Lambda function to trigger an ECS task
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.6
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies: 
+        - PolicyName: root
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action:
+                - ecs:*
+                - logs:*
+                - iam:PassRole
+                Resource: "*"
+Outputs:
+  bucketin:
+    Description: The bucket to put the video files into
+    Value: !Ref bucketin
+  bucketout:
+    Description: The bucket where the thumbnails will be stored
+    Value: !Ref bucketout
+
